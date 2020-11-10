@@ -553,7 +553,44 @@ https://cloud.tencent.com/developer/article/1430021
 
 ## HTTP
 
+##### OPTIONS
 
+**options在什么情况下出现**
+
+- **跨域** 调用，例如：调试时候很多情况都在跨越方式下调试;
+- 自定义头部
+- 请求头的content-type参数：application/x-www-form-urlencoded，multipart/form-data，text/plain之外的格式
+
+以上三种情况出现就会出现options请求了，说白就是为了服务器安全，例如：同源策略引发这个规则;
+
+options通常是浏览器自动发起的，目的就是去服务器检查一下接下来要到用的方法(GET、POST、PUT、detele)在服务器上是否支持;
+
+**对于服务器该如何处理**
+
+检查以下内容
+
+**A：方式**
+
+- 来源是否允许
+- 自定义的头部是否包含(这个和你项目有关)
+
+如果你项目认为是安全的，直接返回200状态码，就可以;
+
+**B：方式**
+
+- 来源是否允许
+- 自定义的头部是否包含(这个和你项目有关)
+- 检查content-type 的内容是否是你期望的
+
+如果你项目认为是安全的，直接返回200状态码，就可以
+
+如果不允许你可以放回状态码400或者其他;
+
+**options请求影响服务性能，如何优化**
+
+本来一个请求就搞定，结果频繁多了很多options必然造成服务的压力;
+
+可以做到options请求做缓存处理，例如： http:// www.**.com/api/getUser 接口会出现   options请求，我们在options返回是做一次options缓存，告知前端以后在此请求这个接口就不要在发options了，服务器响应时可设置  Access-Control-Max-Age 的时间，默认10分钟;
 
 ---
 
