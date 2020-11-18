@@ -216,3 +216,47 @@ https://hit-alibaba.github.io/interview/basic/arch/Memory-Management.html
 
 磁盘调度的目的是减小延迟，其中前两项可以忽略，寻道时间是主要矛盾。
 
+
+
+---
+
+
+
+## Linux
+
+
+
+### 如何查看端口被什么进程监听占用
+
+- `netstat`
+- `lsof`
+
+比如查看 22 端口被谁占用，常见的可以使用 lsof 和 netstat 两种方法
+
+**第一种方法：使用 netstat**
+
+```
+sudo netstat -ltpn | grep :22
+```
+
+
+
+![img](/Users/alexkung/Code/Backend-CampusRecruitment/我的后端校招.assets/1.png)
+
+
+
+**第二种方法：使用 lsof** 因为在 linux 上一切皆文件，TCP socket 连接也是一个 fd。因此使用 lsof 也可以
+
+```
+sudo lsof -n -P -i:22
+```
+
+其中 `-n` 表示不将 IP 转换为 hostname，`-P` 表示不将 port number 转换为 service name，`-i:port` 表示端口号为 22 的进程
+
+
+
+![img](/Users/alexkung/Code/Backend-CampusRecruitment/我的后端校招.assets/lsof.png)
+
+
+
+可以看到 22 端口被进程号为 1333 的 sshd 进程监听

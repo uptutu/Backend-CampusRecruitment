@@ -250,3 +250,24 @@ b.cap = max - low
 
 扩展表达式不能用于切取 string
 
+
+
+## Map
+
+Go 语言的 map 底层使用 Hash 表实现
+
+### 初始化
+
+```go
+// 字面量初始
+m := map[string]int {
+  "apple": 2,
+  "banana": 3, 
+}
+
+// 内置函数make()
+m := make(map[string]int, 10)
+m["apple"] = 2
+m["banana"] = 3
+```
+
