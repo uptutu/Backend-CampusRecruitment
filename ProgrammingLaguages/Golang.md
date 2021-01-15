@@ -87,19 +87,19 @@ func chanParamW(ch chan<- int) {
 `src/runtime/chann.go: hchan`
 
 ```go
- 32 type hchan struct {
- 33         qcount   uint           // 当前队列中的剩余元素
- 34         dataqsiz uint           // 环形队列长度，即可以存放的元素个数
- 35         buf      unsafe.Pointer // 环形队列指针
- 36         elemsize uint16					// 每个元素的大小
- 37         closed   uint32					// 标识关闭状态
- 38         elemtype *_type // 元素类型
- 39         sendx    uint   // send index 	 队列下标，指示元素写入时存放到队列中的位置
- 40         recvx    uint   // receive index 队列下标，指示下一个被读取的元素在队列中的位置
- 41         recvq    waitq  // list of recv waiters	等待读消息的协程队列
- 42         sendq    waitq  // list of send waiters 等待写消息的协程队列
- 50         lock mutex			// 互斥锁， chan 不允许并发读写
- 51 }
+type hchan struct {
+         qcount   uint           // 当前队列中的剩余元素
+         dataqsiz uint           // 环形队列长度，即可以存放的元素个数
+         buf      unsafe.Pointer // 环形队列指针
+         elemsize uint16					// 每个元素的大小
+         closed   uint32					// 标识关闭状态
+         elemtype *_type // 元素类型
+         sendx    uint   // send index 	 队列下标，指示元素写入时存放到队列中的位置
+         recvx    uint   // receive index 队列下标，指示下一个被读取的元素在队列中的位置
+         recvq    waitq  // list of recv waiters	等待读消息的协程队列
+         sendq    waitq  // list of send waiters 等待写消息的协程队列
+         lock mutex			// 互斥锁， chan 不允许并发读写
+}
 ```
 
 四个重点：
@@ -270,4 +270,185 @@ m := make(map[string]int, 10)
 m["apple"] = 2
 m["banana"] = 3
 ```
+
+
+
+
+
+## 操作 Redis
+
+### 包： [go-redis/redis](https://github.com/go-redis/redis)
+
+```sh
+go get -u github.com/go-redis/redis/v8
+```
+
+#### 初始化
+
+```go
+// Way 1    
+rdb := redis.NewClient(&redis.Options{
+        Addr:     "localhost:6379",
+        Password: "", // no password set
+        DB:       0,  // use default DB
+    })
+
+// Way 2
+opt, err := redis.ParseURL("redis://localhost:6379/<db>")
+if err != nil {
+    panic(err)
+}
+
+rdb := redis.NewClient(opt)
+```
+
+#### Set & Get & Del
+
+```go
+cmd := rdb.Set(ctx, "key", "value", 0)
+cmd = rdb.Get(ctx, "key")
+cmd = rdb.Del(ctx, "Key")
+
+// Do 用于执行 Redis 命令
+cmd = rdb.Do(ctx, "get", "key")
+cmd = rdb.Do(ctx, "set", "key", "value", 0)
+
+// 所有返回值为一个 *redis.Cmd 结构体实例，该实例为命令执行的一个状态管理，而 Set(), Get(), Do() 函数相当于只是一个命令的执行开关，而结果是这个命令的返回。
+
+err := cmd.Err()
+if err != nil {
+  panic(err)
+}
+
+val, err := cmd.Result()
+
+// Get 一个没有 Set 的值
+val, err := rdb.Get(ctx, "OtherKey").Result()
+if err != nil {
+    if err == redis.Nil {
+        fmt.Println("key does not exists")
+        return
+    }
+    panic(err)
+}
+fmt.Println(val)
+
+```
+
+
+
+## GORM
+
+#### 包：[go-gorm/gorm](https://github.com/go-gorm/gorm)
+
+```sh
+go get -u gorm.io/gorm
+
+// 安装驱动
+// GORM 官方支持的数据库类型有： MySQL, PostgreSQL, SQlite, SQL Server
+go get -u gorm.io/driver/sqlite
+go get -u gorm.io/driver/mysql
+go get -u gorm.io/driver/postgres
+go get -u gorm.io/driver/sqlserver
+go get -u gorm.io/driver/clickhouse
+```
+
+#### 初始化
+
+以连接到 MySQL 为例
+
+```go
+import (
+  "gorm.io/driver/mysql"
+  "gorm.io/gorm"
+)
+
+func main() {
+  // 参考 https://github.com/go-sql-driver/mysql#dsn-data-source-name 获取详情
+
+  // 通过 Open 函数获得 *gorm.DB 连接实例，之后的查询都通过这个连接进行
+	db, err := gorm.Open(mysql.New(mysql.Config{
+  DSN: "gorm:gorm@tcp(localhost:9910)/gorm?charset=utf8&parseTime=True&loc=Local", // data source name, refer https://github.com/go-sql-driver/mysql#dsn-data-source-name
+  DefaultStringSize: 256, // add default size for string fields, by default, will use db type `longtext` for fields without size, not a primary key, no index defined and don't have default values
+  DisableDatetimePrecision: true, // disable datetime precision support, which not supported before MySQL 5.6
+  DontSupportRenameIndex: true, // drop & create index when rename index, rename index not supported before MySQL 5.7, MariaDB
+  DontSupportRenameColumn: true, // use change when rename column, rename rename not supported before MySQL 8, MariaDB
+  SkipInitializeWithVersion: false, // smart configure based on used version
+}), &gorm.Config{})
+  
+}
+```
+
+#### 示例
+
+```go
+package main
+
+import "gorm.io/gorm"
+import "gorm.io/driver/mysql"
+
+type Product struct {
+  ID	  		uint
+  Code			string
+  Price			uint
+  CreatedAt	time.Time
+  UpdatedAt	time.Time
+}
+
+dsn := "gorm:gorm@tcp(localhost:9910)/gorm?charset=utf8&parseTime=True&loc=Local"
+db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
+  Logger: logger.Default.LogMade(logger.Silent)
+})
+
+db.AutoMigrate(&Product{})
+db.Migrator().CreateTable(&Product{})
+```
+
+
+
+#### 模型
+
+##### 定义
+
+以用户模型为例
+
+```go
+type User struct {
+	gorm.Model
+	Username string  `gorm:"uniqueIndex;not null;size:128"` // 用户名
+	Password string  `gorm:"not null;size:50"`              // 密码
+  Bio			 *string `gorm:"null;text"`											// 个人BB
+
+	// 关联模型
+	Articles []Article
+}
+```
+
+##### 钩子【[更多](https://gorm.io/zh_CN/docs/hooks.html)】
+
+```go
+func (u *User) BeforeCreate(db *gorm.DB) error {
+	// hex 密码
+	u.Password = hex.EncodeToString([]byte(u.Password))
+
+	return nil
+}
+```
+
+##### 创建【[更多](https://gorm.io/zh_CN/docs/create.html)】
+
+```
+user := User{Username: "uptutu", Password: "123456", Bio: nil}
+
+result := db.Create(&user) // 通过数据的指针来创建
+// 创建后自增的主键会返回到 user 变量中，所以传值传递的是地址
+
+user.ID             // 返回插入数据的主键
+result.Error        // 返回 error
+result.RowsAffected // 返回插入记录的条数
+```
+
+
+
+
 
