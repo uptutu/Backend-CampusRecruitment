@@ -466,7 +466,33 @@ walk:
 
 ```
 
-好了，一个路由以及他的 handle 函数以及被设置好了。，既然讲到了路由，我认为很有必要看看当一个 HTTP request 进到程序，他是如何更具请求 URL 找到对应结点的，下面我找出了关键源码呈现给大家。
+好了，一个路由以及他的 handle 函数以及被设置好了。来一张结构脑图总结一下。
+
+![image-20210116120958289](Gin.assets/image-20210116120958289.png)
+
+有必要看着这个结构图和下面的代码然后回忆一下 `gin` 的实现细节
+
+```go
+func init() {
+	r := gin.New()
+
+	r.GET("/", func(c *gin.Context) {
+		c.String(http.StatusOK, "Hello World!")
+	})
+	r.GET("/foo", func(c *gin.Context) {
+		c.String(http.StatusOK, "pong")
+	})
+  r.GET("/bar", func(c *gin.Context) {
+		c.String(http.StatusOK, "pong")
+	})
+
+	http.Handle("/", r)
+}
+```
+
+
+
+既然讲到了路由，我认为很有必要看看当一个 HTTP request 进到程序，他是如何更具请求 URL 找到对应结点的，下面我找出了关键源码呈现给大家。
 
 `gin/gin.go`
 
