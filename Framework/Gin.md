@@ -79,7 +79,7 @@ func New() *Engine {
 }
 ```
 
-我们看到该函数返回的是 *Engine ，直接去到 Engine 结构体的定义看看源码是怎么解释的
+我们看到该函数返回的是 *Engine ，直接去到 Engine 结构体的定义看看源码是什么样的
 
 ```go
 // Engine 是这个框架的实体， 其中包含有 muxer 中间件和一些配置设置
@@ -323,7 +323,7 @@ type node struct {
 
 ![image-20210115165700512](Gin.assets/image-20210115165700512.png)
 
-`trees` 中生成了 `methodTree` 实体，method 方法为 "GET" 因为两个路由都是 GET 方法的，猜测 root 节点是 "/" 的绑定实体该节点下是 "/ping" 路由的节点，果然实况如图：
+在 `trees` 中生成了 `methodTree` 实体，method 方法为 "GET" 因为两个路由都是 GET 方法的，猜测 root 节点是 "/" 的绑定实体该节点下是 "/ping" 路由的节点，果然实况如图：
 
 ![image-20210115171007499](Gin.assets/image-20210115171007499.png)
 
@@ -492,7 +492,7 @@ func init() {
 
 
 
-既然讲到了路由，我认为很有必要看看当一个 HTTP request 进到程序，他是如何更具请求 URL 找到对应结点的，下面我找出了关键源码呈现给大家。
+既然讲到了路由，我认为很有必要看看当一个 HTTP Request 进到程序，他是如何根据请求 URL 找到对应结点的，下面我找出了关键源码呈现给大家。
 
 `gin/gin.go`
 
