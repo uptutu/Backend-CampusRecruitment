@@ -675,3 +675,228 @@ walk: // Outer loop for walking the tree
 ```
 
 可以看见其本质就是一次对树的遍历，直到找到对应路径(path) 所在的结点，然后进行 handle 函数的处理最后返回 HTTP Response
+
+## HTTP 服务实体
+
+上文讲了框架是怎么实现一个路由树，然后实现添加和查找的，今天我们来看看框架的另一个大头，Gin 的 HTTP 服务实体，它是怎么收到 HTTP Request 然后处理，交给路由树进行查询，然后是怎么返回 HTTP Response 的，让我们带着疑问进入源码，忘了之前前面是如何开始的了没关系，还是让我们从一个简单的示例开始，
+
+https://github.com/gin-gonic/examples/blob/master/app-engine/gophers/hello.go
+
+```go
+package hello
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
+
+// This function's name is a must. App Engine uses it to drive the requests properly.
+// 这个函数的名字是必须的。 应用引擎使用这个驱动适当地处理所有的 request
+func init() {
+  // 开始一个新的没有任何中间件的 Gin 实体
+	r := gin.New()
+
+	// 定义你的处理
+	r.GET("/", func(c *gin.Context) {
+		c.String(http.StatusOK, "Hello World!")
+	})
+	r.GET("/ping", func(c *gin.Context) {
+		c.String(http.StatusOK, "pong")
+	})
+
+  // 使用 net/http 处理所有的请求
+	http.Handle("/", r)
+}
+```
+
+回忆一下上述代码的每一行意思，如果有疑问的请翻看第一章。
+
+好的，可以看见程序是通过 http 库实现的 HTTP 程序监听，我们先看看 `http.Handle()` 做了什么
+
+`http/server.go`
+
+```go
+// 为匹配路径注册处理方法
+// 使用 DefaultServeMux.
+// ServeMux 的文档会解释路径是如何匹配的
+func Handle(pattern string, handler Handler) { DefaultServeMux.Handle(pattern, handler) }
+```
+
+这里不关注更深层的，http 库对路径和处理方法的绑定了，可以发现，这里的 `Handle()` 函数第二个参数类型是一个 `Handler` ，而我们直接把 `gin.New()` 实例就传了进来，所以盲猜，这是一个 `Handler ` 接口，而且 gin 对 `Engine` 结构体实现了这个 Handler 接口的所有方法，接下来，让我们来验证猜想。
+
+`http/server.go`
+
+```go
+// 果不其然，红得发紫的 interface 
+type Handler interface {
+   ServeHTTP(ResponseWriter, *Request)
+}
+```
+
+现在我们在 `gin.Engine` 结构体的源码下，看看 `gin` 是怎么实现这个接口函数的呢。我的操作方法是打开源码然后在文件下搜索该函数名，: ) 然后就有了
+
+`gin/gin.go`
+
+```go
+// ServeHTTP conforms to the http.Handler interface.
+func (engine *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+   c := engine.pool.Get().(*Context)
+   c.writermem.reset(w)
+   c.Request = req
+   c.reset()
+
+   engine.handleHTTPRequest(c)
+
+   engine.pool.Put(c)
+}
+```
+
+代码很言简意赅，从引擎的池子中取出一个上下文，然后将收到的 HTTP Request 和 ResponseWriter 交个这个上下文，然后执行此次请求的业务处理，再把这个上下文放入池子。
+
+我们这里不纠结 pool 的具体实现，理解他是什么东西先，先把，一个请求到响应的过程走一趟。
+
+我们下探到 `engine.handleHTTPRequest(c)` 方法，看看，他是在一个上下文中怎么处理 Request 的，老规矩，一行一行代码的看，我把一些自己的理解用注释写在该行代码的上面。
+
+```go
+func (engine *Engine) handleHTTPRequest(c *Context) {
+   httpMethod := c.Request.Method
+   rPath := c.Request.URL.Path
+   unescape := false
+   if engine.UseRawPath && len(c.Request.URL.RawPath) > 0 {
+      rPath = c.Request.URL.RawPath
+      unescape = engine.UnescapePathValues
+   }
+
+   if engine.RemoveExtraSlash {
+      rPath = cleanPath(rPath)
+   }
+
+   // Find root of the tree for the given HTTP method
+   t := engine.trees
+   for i, tl := 0, len(t); i < tl; i++ {
+      if t[i].method != httpMethod {
+         continue
+      }
+      root := t[i].root
+      // Find route in tree
+      value := root.getValue(rPath, c.params, unescape)
+      if value.params != nil {
+         c.Params = *value.params
+      }
+      if value.handlers != nil {
+         c.handlers = value.handlers
+         c.fullPath = value.fullPath
+         c.Next()
+         c.writermem.WriteHeaderNow()
+         return
+      }
+      if httpMethod != "CONNECT" && rPath != "/" {
+         if value.tsr && engine.RedirectTrailingSlash {
+            redirectTrailingSlash(c)
+            return
+         }
+         if engine.RedirectFixedPath && redirectFixedPath(c, root, engine.RedirectFixedPath) {
+            return
+         }
+      }
+      break
+   }
+
+   if engine.HandleMethodNotAllowed {
+      for _, tree := range engine.trees {
+         if tree.method == httpMethod {
+            continue
+         }
+         if value := tree.root.getValue(rPath, nil, unescape); value.handlers != nil {
+            c.handlers = engine.allNoMethod
+            serveError(c, http.StatusMethodNotAllowed, default405Body)
+            return
+         }
+      }
+   }
+   c.handlers = engine.allNoRoute
+   serveError(c, http.StatusNotFound, default404Body)
+}
+```
+
+
+
+## Pool
+
+现在我们再逐层逐层下探，这个 pool 池子是用来干嘛的？他是怎么实例的。这里就需要回到 `gin.New()` 实例引擎的时候了，
+
+`gin/gin.go` 
+
+```go
+type Engine struct {
+	RouterGroup
+	HandleMethodNotAllowed bool
+	ForwardedByClientIP    bool
+	AppEngine bool
+	UseRawPath bool
+	UnescapePathValues bool
+	MaxMultipartMemory int64
+	delims           render.Delims
+	secureJsonPrefix string
+	HTMLRender       render.HTMLRender
+	FuncMap          template.FuncMap
+	allNoRoute       HandlersChain
+	allNoMethod      HandlersChain
+	noRoute          HandlersChain
+	noMethod         HandlersChain
+	pool             sync.Pool
+	trees            methodTrees
+}
+
+func New() *Engine {
+   debugPrintWARNINGNew()
+   engine := &Engine{
+      RouterGroup: RouterGroup{
+         Handlers: nil,
+         basePath: "/",
+         root:     true,
+      },
+      FuncMap:                template.FuncMap{},
+      RedirectTrailingSlash:  true,
+      RedirectFixedPath:      false,
+      HandleMethodNotAllowed: false,
+      ForwardedByClientIP:    true,
+      AppEngine:              defaultAppEngine,
+      UseRawPath:             false,
+      UnescapePathValues:     true,
+      MaxMultipartMemory:     defaultMultipartMemory,
+      trees:                  make(methodTrees, 0, 9),
+      delims:                 render.Delims{Left: "{{", Right: "}}"},
+      secureJsonPrefix:       "while(1);",
+   }
+   engine.RouterGroup.engine = engine
+   engine.pool.New = func() interface{} {
+      return engine.allocateContext()
+   }
+   return engine
+}
+
+```
+
+可以看见在给结构体赋值的时候是没有给 pool 字段赋值的。也就是说在实例 `Engine` 中 pool 现在还是 `sync.Pool` 类型的零值，继续往后看，看到有个对 pool 字段的 `New()` 方法的定义。
+
+`gin/pool.go`
+
+```go
+type Pool struct {
+   noCopy noCopy
+
+   local     unsafe.Pointer // local fixed-size per-P pool, actual type is [P]poolLocal
+   localSize uintptr        // size of the local array
+
+   victim     unsafe.Pointer // local from previous cycle
+   victimSize uintptr        // size of victims array
+
+   // New optionally specifies a function to generate
+   // a value when Get would otherwise return nil.
+   // It may not be changed concurrently with calls to Get.
+   New func() interface{}
+}
+```
+
