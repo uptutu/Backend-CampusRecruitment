@@ -98,6 +98,10 @@ Mysql 的 **默认隔离级别是 Repeatable read**
 >
 > 当系统里没有比这个回滚日志更早的 read-view 的时候。
 
+### ReadView
+
+其实就像是在生成`ReadView`的那个时刻做了一次时间静止（就像用相机拍了一个快照），查询语句只能读到在生成`ReadView`之前已提交事务所做的更改，在生成`ReadView`之前未提交的事务或者之后才开启的事务所做的更改是看不到的。
+
 ### MVCC（Multi-Version Concurrency Control）
 
 指的就是在使用`READ COMMITTD`、`REPEATABLE READ`这两种隔离级别的事务在执行普通的`SELECT`操作时访问记录的版本链的过程，这样子可以使不同事务的`读-写`、`写-读`操作并发执行，从而提升系统性能。`READ COMMITTD`、`REPEATABLE READ`这两个隔离级别的一个很大不同就是：生成ReadView的时机不同，**READ COMMITTD**在每一次进行普通SELECT操作前都会生成一个ReadView，而**REPEATABLE  READ**只在第一次进行普通SELECT操作前生成一个ReadView，之后的查询操作都重复使用这个ReadView就好了。
@@ -1644,7 +1648,9 @@ DELETE FROM undo_demo WHERE id = 1;
 
 
 
+### InnoDB vs MyISAM
 
+因为使用MyISAM、MEMORY、MERGE这些存储引擎的表在同一时刻只允许一个会话对表进行写操作，所以这些存储引擎实际上最好用在只读，或者大部分都是读操作，或者单用户的情景下。 另外，在MyISAM存储引擎中有一个称之为Concurrent Inserts的特性，支持在对MyISAM表读取时同时插入记录，这样可以提升一些插入速度。
 
 ## 参考
 
