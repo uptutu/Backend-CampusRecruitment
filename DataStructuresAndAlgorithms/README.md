@@ -350,6 +350,34 @@ https://t.cj.sina.com.cn/articles/view/6080368657/16a6b101101900svla?from=tech&w
 
 ##### 搜索
 
+###### 二分查找
+
+```go
+// 前提 data 数组内数据有序
+search(data []int, ans int) (Error, int){
+  l := 0
+  r := len(data) - 1
+  
+  while(l < r) {
+    mid := l + r + 1 >>1
+    if data[mid] == ans {
+      return nil, mid
+    }
+    
+    // 如果找到的值比想要的小，说明答案在 mid 的右边
+    // 即移动左标杆
+    // 相反，答案比找到的要小即移动右标杆
+    if data[mid] < ans {
+      l = mid
+    } else {
+      r = mid - 1 
+    }
+  }
+  
+  return new Error("Not Fount"), 0
+}
+```
+
 
 
 ---
