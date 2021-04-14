@@ -4,13 +4,14 @@
 
 ### 概念
 
-Go在语言层提供的协程间通信的方式
+Go 在语言层提供的协程间通信的方式
 
 ### 初始化
 
 ```go
-var ch chan int			 			// 声明管道
 // 值为 nil
+var ch chan int			 			// 声明管道
+
 
 ch1 := make(chan int)			// 无缓冲管道
 ch2 := make(chan int, 2)	// 带缓冲管道 
@@ -50,23 +51,61 @@ func chanParamW(ch chan<- int) {
 
 #### 数据读写
 
-管道没有缓冲区，读写数据会阻塞，直到有协程向管道中写读数据。
+管道 **没有缓冲区**，**读写** 数据会 **阻塞**，直到有协程向管道中写读数据。
 
-有缓冲区但没有缓冲数据时读操作也会阻塞协程直到有数据写入才会唤醒该阻塞协程，向管道写入数据，缓冲区满了也会阻塞，直到有协程从缓冲区读取数据。
+**有缓冲区但没有缓冲数据时可读** 操作也会 **阻塞协程** 直到有数据写入才会唤醒该阻塞协程。向管道 **写入数据** 时，缓冲区满了也会 **阻塞协程**，直到有协程从缓冲区读取数据，让管道的缓冲区的数据为不满时。
 
-值为 nil 的管道无论读写都会阻塞，而且是永久阻塞。
+值为 **nil 的管道无论读写** 都会阻塞，因为缺少了释放条件，所以是 **永久阻塞**。
+
+使用内置函数 `close()` 可以关闭管道，尝试**向关闭的管道写入数据会触发 panic**， 但是**关闭的管道认可读**。
+
+使用  `select` 可以监控多个管道，当其中某一个管道可操作时就触发响应的 case 分支。事实上 select 语句的多个 case 语句的执行顺序是 **随机的**。
+
+```go
+select {
+case e := <- chan1 :
+  fmt.Printf("Get the element from chan1: %d\n", e)
+case e := chan2 :
+  fmt.Printf("Get the element from chan2: %d\n", e)
+default:
+  fmt.Printf("No element in chan1 and chan2\n")
+}
+```
+
+可以用一个死循环不断的 `select` 管道，直到有想要的数据
+
+```go
+for {
+  select {
+	case e := <- chan1 :
+  	fmt.Printf("Get the element from chan1: %d\n", e)
+	case e := <- chan2 :
+  	fmt.Printf("Get the element from chan2: %d\n", e)
+	default:
+  	fmt.Printf("No element in chan1 and chan2\n")
+	}
+}
+```
 
 
 
-使用  select 可以监控多个管道，当其中某一个管道可操作时就触发响应的 case 分支。事实上 select 语句的多个 case 语句的执行顺序是随机的。
+可以使用 `for-range` 持续地从管道中遍历数据，就像是遍历一个数组，因为管道本质是一个环型队列。当管道中没有数据时会阻塞当前协程，与读管道时的阻塞处理机制一样。即便管道被关闭，for-range 也可以优雅地结束。
+
+```go
+func chanRange(nums chan int) {
+  for e := range nums {
+    fmt.Printf("You get it: %d\n", e)
+  }
+}
+```
 
 
 
 #### 其他操作
 
-内置函数 `len()` 和 `cap()` 作用于管道，分别用于查询缓冲区中数据的个数以及缓冲区的大小。
+内置函数 `len()` 和 `cap()` 作用于管道，可用于查询缓冲区中数据的个数以及缓冲区的大小。
 
-管道实现了一种 FIFO（先入先出）的队列，数据总是按照写入的顺序流出管道。
+管道实现了一种 **FIFO（先入先出）的队列**，数据总是按照写入的顺序流出管道。
 
 协程读取管道时阻塞的条件有：
 
@@ -93,23 +132,43 @@ type hchan struct {
          buf      unsafe.Pointer // 环形队列指针
          elemsize uint16					// 每个元素的大小
          closed   uint32					// 标识关闭状态
-         elemtype *_type // 元素类型
-         sendx    uint   // send index 	 队列下标，指示元素写入时存放到队列中的位置
-         recvx    uint   // receive index 队列下标，指示下一个被读取的元素在队列中的位置
-         recvq    waitq  // list of recv waiters	等待读消息的协程队列
-         sendq    waitq  // list of send waiters 等待写消息的协程队列
-         lock mutex			// 互斥锁， chan 不允许并发读写
+         elemtype *_type 					// 元素类型
+         sendx    uint   					// send index 	 队列下标，指示元素写入时存放到队列中的位置
+         recvx    uint   					// receive index 队列下标，指示下一个被读取的元素在队列中的位置
+         recvq    waitq  					// list of recv waiters	等待读消息的协程队列
+         sendq    waitq  					// list of send waiters 等待写消息的协程队列
+         lock mutex								// 互斥锁， chan 不允许并发读写
 }
 ```
+
+假设 make 了一个容量为 8 的管道，那么其本质上是一个环型队列
+
+![环型队列](../../../Downloads/环型队列.png)
+
+但是因为内存是阵列式的，所以不可能有这样的实际环型内存空间给分配出来，所以，分配的 8 个大小的内存空间应该是连续的，像数组一样，下图展示 hchan 的一个大概概念图：
+
+![hchan](../../../Downloads/hchan.png)
+
+
+
+dataqsiz:	队列长度，即缓冲区大小 (cap(ch))
+
+buf:	指向队列缓存的地址空间
+
+qcount: 表示队列中还有多少个元素  (len(ch))
+
+sendx:	表示后续写入数据存储应该在队列中的的下标（index）
+
+recvx:	表示后续读取数据应该从队列的这个下标处读取
 
 四个重点：
 
 - 环形队列
-- 等待队列（读写各一个）
+- 等待队列 x2（读写各一个）
 - 类型消息
 - 互斥锁
 
-一般情况下 recvq 和 sendq 至少有一个为空。只有一个例外，那就是同一个协程使用 select 语句向管道一边写入数据一边读取数据，吃屎协程会分别位于两个等待队列中。
+一般情况下 recvq 和 sendq 至少有一个为空。只有一个例外，那就是同一个协程使用 select 语句向管道一边写入数据一边读取数据，此时协程会分别位于两个等待队列中。
 
 ##### 向管道写数据
 
@@ -138,6 +197,88 @@ type hchan struct {
 - 关闭值为 nil 的管道
 - 关闭已经被关闭的管道
 - 向已经关闭的管道写入数据
+
+##### 思考题
+
+1. 下面关于管道的描述正确的是（单选）？
+
+   A) 读 nil 管道会触发 panic
+
+   B) 写 nil 管道会触发 panic
+
+   C) 读关闭的管道会触发 panic
+
+   D) 写关闭的管道会触发 panic
+
+2. 下面的函数输出什么？
+
+   ```go
+   func ChanCap() {
+     ch := make(chan int, 10)
+     ch <- 1
+     ch <- 2
+     fmt.Println(len(ch))
+     fmt.Println(cap(ch))
+   }
+   ```
+
+3. 以下选项可以实现互斥锁的是（单选）？
+
+   A)
+
+   ```go
+   var counter int = 0
+   var ch = make(chan int, 1)
+   
+   func Worker() {
+     ch <- 1
+     counter++
+     <-ch
+   }
+   ```
+
+   B)
+
+   ```go
+   var counter int = 0
+   var ch = make(chan int)
+   
+   func Worker() {
+     <- ch
+     counter++
+     ch <- 1
+   }
+   ```
+
+   C)
+
+   ```go
+   var counter int = 0
+   var ch = make(chan int, 1)
+   
+   func Worker() {
+     <- ch
+     counter++
+     ch <- 1
+   }
+   ```
+
+   D)
+
+   ```go
+   var counter int = 0
+   var ch = make(chan int)
+   
+   func Worker() {
+     ch <- 1
+     counter++
+     <-ch
+   }
+   ```
+
+   
+
+   
 
 
 
